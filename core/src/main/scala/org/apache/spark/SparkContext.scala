@@ -80,6 +80,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   // The call site where this SparkContext was constructed.
   private val creationSite: CallSite = Utils.getCallSite()
 
+  /** 多 sparkcontexts */
   // If true, log warnings instead of throwing exceptions when multiple SparkContexts are active
   private val allowMultipleContexts: Boolean =
     config.getBoolean("spark.driver.allowMultipleContexts", false)
@@ -92,6 +93,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   // This is used only by YARN for now, but should be relevant to other cluster types (Mesos,
   // etc) too. This is typically generated from InputFormatInfo.computePreferredLocations. It
   // contains a map from hostname to a list of input format splits on the host.
+  /** 一个hostname到一个系列分片的集合的映射的map。  暂时只能用于YARN*/
   private[spark] var preferredNodeLocationData: Map[String, Set[SplitInfo]] = Map()
 
   val startTime = System.currentTimeMillis()
@@ -104,7 +106,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     }
   }
 
-  /**
+  /**创建SparkContext 装载系统配置
    * Create a SparkContext that loads settings from system properties (for instance, when
    * launching with ./bin/spark-submit).
    */
