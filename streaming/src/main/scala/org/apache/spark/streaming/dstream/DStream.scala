@@ -74,6 +74,8 @@ abstract class DStream[T: ClassTag] (
   def dependencies: List[DStream[_]]
 
   /** Method that generates a RDD for the given time */
+  /** DStream的核心函数，每一个继承于此的子类都需要实现此compute()函数。而根据不同的
+      DStream， compute()函数都需要实现其特定功能，而计算的结果则是返回计算好的RDD*/
   def compute(validTime: Time): Option[RDD[T]]
 
   // =======================================================================
@@ -81,6 +83,8 @@ abstract class DStream[T: ClassTag] (
   // =======================================================================
 
   // RDDs generated, marked as private[streaming] so that testsuites can access it
+  /** 每一个DStream内部维护的RDD HashMap，DStream本质上封装了一组以Time为key的RDD，而对于
+      DStream的各种操作在内部映射为对RDD的操作 */
   @transient
   private[streaming] var generatedRDDs = new HashMap[Time, RDD[T]] ()
 
