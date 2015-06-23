@@ -18,6 +18,7 @@
 package org.apache.spark
 
 /**
+ * 用于请求/杀死 executors的客户端
  * A client that communicates with the cluster manager to request or kill executors.
  * This is currently supported only in YARN mode.
  */

@@ -46,6 +46,11 @@ import org.apache.spark.unsafe.memory.{ExecutorMemoryManager, MemoryAllocator}
 import org.apache.spark.util.{RpcUtils, Utils}
 
 /**
+ * 包含spark实例运行时的环境对象。分别在master 和worker上
+ * 包含有：serializer，Akka actor system，block manager，cacheManager，shuffleManager，broadcastManager，
+ * map output tracker，httpFileServer等等
+ */
+/**
  * :: DeveloperApi ::
  * Holds all the runtime environment objects for a running Spark instance (either master or worker),
  * including the serializer, Akka actor system, block manager, map output tracker, etc. Currently

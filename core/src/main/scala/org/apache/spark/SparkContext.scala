@@ -65,7 +65,7 @@ import org.apache.spark.ui.{SparkUI, ConsoleProgressBar}
 import org.apache.spark.ui.jobs.JobProgressListener
 import org.apache.spark.util._
 
-/**
+/** spark的主要入口，一个sparkContent代表着一个spark集群的连接。用来创建RDDs 累加器 ，广播变量
  * Main entry point for Spark functionality. A SparkContext represents the connection to a Spark
  * cluster, and can be used to create RDDs, accumulators and broadcast variables on that cluster.
  *
@@ -2614,6 +2614,7 @@ object WritableConverter {
 }
 
 /**
+ * 给类型的writeable的工厂类   T to Writable
  * A class encapsulating how to convert some type T to Writable. It stores both the Writable class
  * corresponding to T (e.g. IntWritable for Int) and a function for doing the conversion.
  * The Writable class will be used in `SequenceFileRDDFunctions`.

@@ -350,12 +350,9 @@ abstract class RDD[T: ClassTag](
    * If you are decreasing the number of partitions in this RDD, consider using `coalesce`,
    * which can avoid performing a shuffle.
    */
-<<<<<<< HEAD
+
   //用于重新设置分区数，会重新shuffle，建议使用coalesce
-  def repartition(numPartitions: Int)(implicit ord: Ordering[T] = null): RDD[T] = {
-=======
   def repartition(numPartitions: Int)(implicit ord: Ordering[T] = null): RDD[T] = withScope {
->>>>>>> apache/master
     coalesce(numPartitions, shuffle = true)
   }
 
