@@ -69,6 +69,7 @@ private[spark] class MapOutputTrackerMasterEndpoint(
 }
 
 /**
+ * MapOutputTracker用于跟踪一个stage的map输出。(driver and executor)使用不同的Hashmap存储他们的元数据
  * Class that keeps track of the location of the map output of
  * a stage. This is abstract because different versions of MapOutputTracker
  * (driver and executor) use different HashMap to store its metadata.

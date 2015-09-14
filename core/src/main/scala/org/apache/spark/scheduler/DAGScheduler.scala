@@ -41,6 +41,10 @@ import org.apache.spark.util._
 import org.apache.spark.storage.BlockManagerMessages.BlockManagerHeartbeat
 
 /**
+ * 高层次的调度层，实现了一个面向stage的调度机制。它为每个任务计算生成一个stage的DAG图，
+ * 并保持RDDS和stage物化的跟踪，找到一个最小化的调度运行任务。之后提交stages 的taskset到TaskScheduler
+ */
+/**
  * The high-level scheduling layer that implements stage-oriented scheduling. It computes a DAG of
  * stages for each job, keeps track of which RDDs and stage outputs are materialized, and finds a
  * minimal schedule to run the job. It then submits stages as TaskSets to an underlying
@@ -285,7 +289,7 @@ class DAGScheduler(
       numTasks: Int,
       jobId: Int,
       callSite: CallSite): ResultStage = {
-    val (parentStages: List[Stage], id: Int) = getParentStagesAndId(rdd, jobId)
+    val (parentStages: List[Stage], id: Int) = getParentStagesAndId(rdd, jobId) //获取父stages
     val stage: ResultStage = new ResultStage(id, rdd, numTasks, parentStages, jobId, callSite)
 
     stageIdToStage(id) = stage
@@ -502,7 +506,7 @@ class DAGScheduler(
     job.finalStage.resultOfJob = None
   }
 
-  /**
+  /** 提交任务到job  schedule 返回一个joobwaiter对象。该对象用于阻塞等待任务完成，或者用于取消任务
    * Submit a job to the job scheduler and get a JobWaiter object back. The JobWaiter object
    * can be used to block until the the job finishes executing or can be used to cancel the job.
    */
@@ -532,10 +536,13 @@ class DAGScheduler(
     val waiter = new JobWaiter(this, jobId, partitions.size, resultHandler)
     eventProcessLoop.post(JobSubmitted(
       jobId, rdd, func2, partitions.toArray, allowLocal, callSite, waiter,
-      SerializationUtils.clone(properties)))
+      SerializationUtils.clone(properties)))  //提价任务到
     waiter
   }
 
+  /**
+   * 提交任务，等待任执行结束
+   */
   def runJob[T, U](
       rdd: RDD[T],
       func: (TaskContext, Iterator[T]) => U,
@@ -772,6 +779,11 @@ class DAGScheduler(
     submitWaitingStages()
   }
 
+  /**
+   处理任务的提交事件
+    1.产生resulStage
+    2.本地运行或者提交stage
+   */
   private[scheduler] def handleJobSubmitted(jobId: Int,
       finalRDD: RDD[_],
       func: (TaskContext, Iterator[_]) => _,
@@ -784,14 +796,14 @@ class DAGScheduler(
     try {
       // New stage creation may throw an exception if, for example, jobs are run on a
       // HadoopRDD whose underlying HDFS files have been deleted.
-      finalStage = newResultStage(finalRDD, partitions.size, jobId, callSite)
+      finalStage = newResultStage(finalRDD, partitions.size, jobId, callSite)//ResultStagede 的产生 包含父stages
     } catch {
       case e: Exception =>
         logWarning("Creating new stage failed due to exception - job: " + jobId, e)
         listener.jobFailed(e)
         return
     }
-    if (finalStage != null) {
+    if (finalStage != null) {  //本地执行或者提交stage
       val job = new ActiveJob(jobId, finalStage, func, partitions, callSite, listener, properties)
       clearCacheLocs()
       logInfo("Got job %s (%s) with %d output partitions (allowLocal=%s)".format(
