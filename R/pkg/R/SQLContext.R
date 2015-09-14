@@ -49,7 +49,7 @@ infer_type <- function(x) {
     stopifnot(length(x) > 0)
     names <- names(x)
     if (is.null(names)) {
-      list(type = "array", elementType = infer_type(x[[1]]), containsNull = TRUE)
+      paste0("array<", infer_type(x[[1]]), ">")
     } else {
       # StructType
       types <- lapply(x, infer_type)
@@ -59,7 +59,7 @@ infer_type <- function(x) {
       do.call(structType, fields)
     }
   } else if (length(x) > 1) {
-    list(type = "array", elementType = type, containsNull = TRUE)
+    paste0("array<", infer_type(x[[1]]), ">")
   } else {
     type
   }
@@ -86,7 +86,9 @@ infer_type <- function(x) {
 createDataFrame <- function(sqlContext, data, schema = NULL, samplingRatio = 1.0) {
   if (is.data.frame(data)) {
       # get the names of columns, they will be put into RDD
-      schema <- names(data)
+      if (is.null(schema)) {
+        schema <- names(data)
+      }
       n <- nrow(data)
       m <- ncol(data)
       # get rid of factor type
@@ -199,7 +201,7 @@ setMethod("toDF", signature(x = "RDD"),
 
 jsonFile <- function(sqlContext, path) {
   # Allow the user to have a more flexible definiton of the text file path
-  path <- normalizePath(path)
+  path <- suppressWarnings(normalizePath(path))
   # Convert a string vector of paths to a string containing comma separated paths
   path <- paste(path, collapse = ",")
   sdf <- callJMethod(sqlContext, "jsonFile", path)
@@ -249,7 +251,7 @@ jsonRDD <- function(sqlContext, rdd, schema = NULL, samplingRatio = 1.0) {
 # TODO: Implement saveasParquetFile and write examples for both
 parquetFile <- function(sqlContext, ...) {
   # Allow the user to have a more flexible definiton of the text file path
-  paths <- lapply(list(...), normalizePath)
+  paths <- lapply(list(...), function(x) suppressWarnings(normalizePath(x)))
   sdf <- callJMethod(sqlContext, "parquetFile", paths)
   dataFrame(sdf)
 }
@@ -455,7 +457,7 @@ dropTempTable <- function(sqlContext, tableName) {
 read.df <- function(sqlContext, path = NULL, source = NULL, schema = NULL, ...) {
   options <- varargsToEnv(...)
   if (!is.null(path)) {
-    options[['path']] <- path
+    options[["path"]] <- path
   }
   if (is.null(source)) {
     sqlContext <- get(".sparkRSQLsc", envir = .sparkREnv)
@@ -504,7 +506,7 @@ loadDF <- function(sqlContext, path = NULL, source = NULL, schema = NULL, ...) {
 createExternalTable <- function(sqlContext, tableName, path = NULL, source = NULL, ...) {
   options <- varargsToEnv(...)
   if (!is.null(path)) {
-    options[['path']] <- path
+    options[["path"]] <- path
   }
   sdf <- callJMethod(sqlContext, "createExternalTable", tableName, source, options)
   dataFrame(sdf)
