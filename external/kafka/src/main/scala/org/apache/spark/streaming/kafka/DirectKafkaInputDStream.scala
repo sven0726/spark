@@ -17,20 +17,20 @@
 
 package org.apache.spark.streaming.kafka
 
-import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.reflect.ClassTag
-
 import kafka.common.TopicAndPartition
 import kafka.message.MessageAndMetadata
 import kafka.serializer.Decoder
-
 import org.apache.spark.{Logging, SparkException}
 import org.apache.spark.streaming.{StreamingContext, Time}
 import org.apache.spark.streaming.dstream._
-import org.apache.spark.streaming.kafka.KafkaCluster.LeaderOffset
+import org.apache.spark.streaming.kafka.KafkaCluster.{Err, LeaderOffset}
 import org.apache.spark.streaming.scheduler.{RateController, StreamInputInfo}
 import org.apache.spark.streaming.scheduler.rate.RateEstimator
+
+import scala.annotation.tailrec
+
 
 /**
  *  A stream of {@link org.apache.spark.streaming.kafka.KafkaRDD} where
@@ -115,6 +115,25 @@ class DirectKafkaInputDStream[
 
   @tailrec
   protected final def latestLeaderOffsets(retries: Int): Map[TopicAndPartition, LeaderOffset] = {
+    val topics = fromOffsets.keys.map{ tP =>
+      tP.topic
+    }.toSet
+
+    val parts = kc.getPartitions(topics) match {
+      case Left(err) => throw new SparkException(err.toString)
+      case Right(tps) => tps
+    }
+    val newPartitions = parts.diff(currentOffsets.keySet)
+    logInfo(s"new partitions: ${newPartitions}")
+    var newTpOffset: Map[TopicAndPartition, LeaderOffset] = Map()
+    if (!newPartitions.isEmpty) {
+      newTpOffset = kc.getEarliestLeaderOffsets(newPartitions) match {
+        case Left(err) => throw new SparkException(err.toString)
+        case Right(tplo) => tplo
+      }
+    }
+    currentOffsets = currentOffsets ++ newTpOffset.mapValues(value => value.offset)
+
     val o = kc.getLatestLeaderOffsets(currentOffsets.keySet)
     // Either.fold would confuse @tailrec, do it manually
     if (o.isLeft) {
@@ -129,6 +148,8 @@ class DirectKafkaInputDStream[
     } else {
       o.right.get
     }
+
+
   }
 
   // limits the maximum number of messages per partition
@@ -151,6 +172,7 @@ class DirectKafkaInputDStream[
       val uo = untilOffsets(tp)
       OffsetRange(tp.topic, tp.partition, fo, uo.offset)
     }
+    logInfo(s"offsetRange ${offsetRanges}")
     val description = offsetRanges.filter { offsetRange =>
       // Don't display empty ranges.
       offsetRange.fromOffset != offsetRange.untilOffset
@@ -158,6 +180,8 @@ class DirectKafkaInputDStream[
       s"topic: ${offsetRange.topic}\tpartition: ${offsetRange.partition}\t" +
         s"offsets: ${offsetRange.fromOffset} to ${offsetRange.untilOffset}"
     }.mkString("\n")
+
+    logInfo(s"description: ${description}")
     // Copy offsetRanges to immutable.List to prevent from being modified by the user
     val metadata = Map(
       "offsets" -> offsetRanges.toList,
