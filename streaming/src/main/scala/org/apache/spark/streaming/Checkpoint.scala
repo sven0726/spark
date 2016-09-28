@@ -56,12 +56,24 @@ class Checkpoint(ssc: StreamingContext, val checkpointTime: Time)
       "spark.master",
       "spark.yarn.keytab",
       "spark.yarn.principal",
-      "spark.ui.filters")
+      "spark.ui.filters",
+      "spark.executor.memory",
+      "spark.executor.cores",
+      "spark.executor.instances")
 
+    logInfo("sparkConf load from checkpoint")
+    for((key, value) <- sparkConfPairs) {
+      logInfo(key + ":" + value)
+    }
     val newSparkConf = new SparkConf(loadDefaults = false).setAll(sparkConfPairs)
       .remove("spark.driver.host")
       .remove("spark.driver.port")
     val newReloadConf = new SparkConf(loadDefaults = true)
+    val reloadConf = newReloadConf.getAll
+    logInfo("sparkConf load from properties ")
+    for((key, value) <- reloadConf) {
+      logInfo(key + ":" + value)
+    }
     propertiesToReload.foreach { prop =>
       newReloadConf.getOption(prop).foreach { value =>
         newSparkConf.set(prop, value)
@@ -77,6 +89,10 @@ class Checkpoint(ssc: StreamingContext, val checkpointTime: Time)
       }
     }
 
+    logInfo("final spark conf")
+    for((key, value) <- newSparkConf.getAll){
+      logInfo(key + ":" + value)
+    }
     newSparkConf
   }
 
