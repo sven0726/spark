@@ -126,10 +126,14 @@ private[spark] class MetricsSystem private (
   private[spark] def buildRegistryName(source: Source): String = {
     val appId = conf.getOption("spark.app.id")
     val executorId = conf.getOption("spark.executor.id")
+    val transformId = conf.getOption("pipeline.transform.id")
     val defaultName = MetricRegistry.name(source.sourceName)
 
+
     if (instance == "driver" || instance == "executor") {
-      if (appId.isDefined && executorId.isDefined) {
+      if (transformId.isDefined && appId.isDefined && executorId.isDefined) {
+        MetricRegistry.name(transformId.get, appId.get, executorId.get, source.sourceName)
+      } else if (appId.isDefined && executorId.isDefined) {
         MetricRegistry.name(appId.get, executorId.get, source.sourceName)
       } else {
         // Only Driver and Executor set spark.app.id and spark.executor.id.
