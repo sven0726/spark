@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<project name="maven-antrun-" default="main"  >
+<target name="main">
+  <mkdir dir="/Users/andyzhao/Workspace/GitProject/ContributeProject/spark-2.0/spark/network/yarn/target/tmp"/>
+</target>
+</project>

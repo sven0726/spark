@@ -1,0 +1,14 @@
+[0m[[0mdebug[0m] [0mjavaOptions: List(-Xmx3g, -Djava.io.tmpdir=/Users/andyzhao/Workspace/GitProject/ContributeProject/spark-2.0/spark/target/tmp, -Dspark.test.home=/Users/andyzhao/Workspace/GitProject/ContributeProject/spark-2.0/spark, -Dspark.testing=1, -Dspark.port.maxRetries=100, -Dspark.master.rest.enabled=false, -Dspark.memory.debugFill=true, -Dspark.ui.enabled=false, -Dspark.ui.showConsoleProgress=false, -Dspark.unsafe.exceptionOnMemoryLeak=true, -Dsun.io.serialization.extendedDebugInfo=false, -Dderby.system.durability=test, -ea, -Xmx3g, -Xss4096k, -XX:PermSize=128M, -XX:MaxNewSize=256m, -XX:MaxPermSize=1g)[0m
+[0m[[0mdebug[0m] [0mForking tests - parallelism = false[0m
+[0m[[0minfo[0m] [0mScalaCheck[0m
+[0m[[0minfo[0m] [0mPassed: Total 0, Failed 0, Errors 0, Passed 0[0m
+[0m[[0minfo[0m] [0mWarning: Unknown ScalaCheck args provided: -z get correct spark.driver -oDF[0m
+[0m[[0minfo[0m] [0mScalaTest[0m
+[0m[[0minfo[0m] [0m[36mRun completed in 82 milliseconds.[0m[0m
+[0m[[0minfo[0m] [0m[36mTotal number of tests run: 0[0m[0m
+[0m[[0minfo[0m] [0m[36mSuites: completed 0, aborted 0[0m[0m
+[0m[[0minfo[0m] [0m[36mTests: succeeded 0, failed 0, canceled 0, ignored 0, pending 0[0m[0m
+[0m[[0minfo[0m] [0m[33mNo tests were executed.[0m[0m
+[0m[[0mdebug[0m] [0mSummary for JUnit not available.[0m
+[0m[[0minfo[0m] [0mPassed: Total 0, Failed 0, Errors 0, Passed 0[0m
+[0m[[0minfo[0m] [0mNo tests to run for java8-tests/test:testOnly[0m
