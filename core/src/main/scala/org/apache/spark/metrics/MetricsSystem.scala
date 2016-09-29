@@ -126,7 +126,7 @@ private[spark] class MetricsSystem private (
   private[spark] def buildRegistryName(source: Source): String = {
     val appId = conf.getOption("spark.app.id")
     val executorId = conf.getOption("spark.executor.id")
-    val transformId = conf.getOption("pipeline.transform.id")
+    val transformId = conf.getOption("spark.pipeline.transform.id")
     val defaultName = MetricRegistry.name(source.sourceName)
 
 
