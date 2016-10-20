@@ -59,7 +59,7 @@ abstract class ParserDialect {
  *-- "hiveql" (for HiveContext)
  * }}}
  */
-private[spark] class DefaultParserDialect extends ParserDialect {
+class DefaultParserDialect extends ParserDialect {
   @transient
   protected val sqlParser = SqlParser
 
