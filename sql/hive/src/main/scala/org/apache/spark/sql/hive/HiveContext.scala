@@ -327,7 +327,7 @@ class HiveContext private[hive](
     isolatedLoader.createClient()
   }
 
-  protected[sql] override def parseSql(sql: String): LogicalPlan = {
+  override def parseSql(sql: String): LogicalPlan = {
     super.parseSql(substitutor.substitute(hiveconf, sql))
   }
 
@@ -453,7 +453,7 @@ class HiveContext private[hive](
 
   /* A catalyst metadata catalog that points to the Hive Metastore. */
   @transient
-  override protected[sql] lazy val catalog =
+  override lazy val catalog =
     new HiveMetastoreCatalog(metadataHive, this) with OverrideCatalog
 
   // Note that HiveUDFs will be overridden by functions registered in this context.
@@ -469,7 +469,7 @@ class HiveContext private[hive](
 
   /* An analyzer that uses the Hive metastore. */
   @transient
-  override protected[sql] lazy val analyzer: Analyzer =
+  override lazy val analyzer: Analyzer =
     new Analyzer(catalog, functionRegistry, conf) {
       override val extendedResolutionRules =
         catalog.ParquetConversions ::

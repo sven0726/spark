@@ -88,7 +88,7 @@ private[hive] case class CreateViewAsSelect(
 }
 
 /** Provides a mapping from HiveQL statements to catalyst logical plans and expression trees. */
-object HiveQl extends Logging {
+private[hive] object HiveQl extends Logging {
   protected val nativeCommands = Seq(
     "TOK_ALTERDATABASE_OWNER",
     "TOK_ALTERDATABASE_PROPERTIES",
