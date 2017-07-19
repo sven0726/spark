@@ -20,17 +20,6 @@ hs_err_pid*
 *.so
 
 # Folders
-_obj
-_test
-bin/
-pkg/
-.idea/
-sparkTemplate/target
-sparkTemplate.v2/target
-sparkTemplate.v2/driver/target
-sparkTemplate.v2/plugins/target
-sparkTemplate.v2/sdk/target
-!src/github.com/coreos/etcd/pkg
 
 # auditlog folders
 
