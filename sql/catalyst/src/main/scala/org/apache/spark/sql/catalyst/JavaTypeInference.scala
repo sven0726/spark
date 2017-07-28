@@ -423,7 +423,6 @@ object JavaTypeInference {
             inputObject,
             ObjectType(keyType.getRawType),
             serializerFor(_, keyType),
-            keyNullable = true,
             ObjectType(valueType.getRawType),
             serializerFor(_, valueType),
             valueNullable = true
