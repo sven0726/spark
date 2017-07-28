@@ -185,7 +185,7 @@ private[netty] class NettyRpcEnv(
       try {
         dispatcher.postOneWayMessage(message)
       } catch {
-        case e: RpcEnvStoppedException => logDebug(e.getMessage)
+        case e: RpcEnvStoppedException => logWarning(e.getMessage)
       }
     } else {
       // Message to a remote RPC endpoint.
@@ -203,10 +203,7 @@ private[netty] class NettyRpcEnv(
 
     def onFailure(e: Throwable): Unit = {
       if (!promise.tryFailure(e)) {
-        e match {
-          case e : RpcEnvStoppedException => logDebug (s"Ignored failure: $e")
-          case _ => logWarning(s"Ignored failure: $e")
-        }
+        logWarning(s"Ignored failure: $e")
       }
     }
 
