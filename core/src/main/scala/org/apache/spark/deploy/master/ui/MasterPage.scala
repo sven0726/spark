@@ -24,7 +24,7 @@ import scala.xml.Node
 import org.json4s.JValue
 
 import org.apache.spark.deploy.DeployMessages.{KillDriverResponse, MasterStateResponse, RequestKillDriver, RequestMasterState}
-import org.apache.spark.deploy.JsonProtocol
+import org.apache.spark.deploy.{JsonProtocol, XSparkUI}
 import org.apache.spark.deploy.master._
 import org.apache.spark.ui.{UIUtils, WebUIPage}
 import org.apache.spark.util.Utils
@@ -176,11 +176,13 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
   }
 
   private def workerRow(worker: WorkerInfo): Seq[Node] = {
+    val workerDomain = XSparkUI.retrieveXSparkAP(XSparkUI.WORKER_DOMAIN)
+    val workerNewDomain = "http://%s.%s".format(worker.host, workerDomain)
     <tr>
       <td>
         {
           if (worker.isAlive()) {
-            <a href={UIUtils.makeHref(parent.master.reverseProxy, worker.id, worker.webUiAddress)}>
+            <a href={workerNewDomain}>
               {worker.id}
             </a>
           } else {
@@ -220,8 +222,7 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
           if (app.isFinished) {
             app.desc.name
           } else {
-            <a href={UIUtils.makeHref(parent.master.reverseProxy,
-              app.id, app.desc.appUiUrl)}>{app.desc.name}</a>
+            <a href={"app?appId=" + app.id}>{app.desc.name}</a>
           }
         }
       </td>

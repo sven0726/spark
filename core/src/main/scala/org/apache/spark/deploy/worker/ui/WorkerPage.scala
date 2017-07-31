@@ -24,7 +24,7 @@ import scala.xml.Node
 import org.json4s.JValue
 
 import org.apache.spark.deploy.DeployMessages.{RequestWorkerState, WorkerStateResponse}
-import org.apache.spark.deploy.JsonProtocol
+import org.apache.spark.deploy.{JsonProtocol, XSparkUI}
 import org.apache.spark.deploy.master.DriverState
 import org.apache.spark.deploy.worker.{DriverRunner, ExecutorRunner}
 import org.apache.spark.ui.{UIUtils, WebUIPage}
@@ -40,6 +40,7 @@ private[ui] class WorkerPage(parent: WorkerWebUI) extends WebUIPage("") {
 
   def render(request: HttpServletRequest): Seq[Node] = {
     val workerState = workerEndpoint.askSync[WorkerStateResponse](RequestWorkerState)
+    val masterDomain = XSparkUI.retrieveXSparkAP(XSparkUI.CLUSTER_DOMAIN)
 
     val executorHeaders = Seq("ExecutorID", "Cores", "State", "Memory", "Job Details", "Logs")
     val runningExecutors = workerState.executors
@@ -70,7 +71,7 @@ private[ui] class WorkerPage(parent: WorkerWebUI) extends WebUIPage("") {
             <li><strong>Memory:</strong> {Utils.megabytesToString(workerState.memory)}
               ({Utils.megabytesToString(workerState.memoryUsed)} Used)</li>
           </ul>
-          <p><a href={workerState.masterWebUiUrl}>Back to Master</a></p>
+          <p><a href={masterDomain}>Back to Master</a></p>
         </div>
       </div>
       <div class="row-fluid"> <!-- Executors and Drivers -->
