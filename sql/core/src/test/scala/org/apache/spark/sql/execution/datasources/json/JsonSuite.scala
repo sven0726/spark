@@ -27,11 +27,12 @@ import org.apache.hadoop.fs.{Path, PathFilter}
 import org.apache.hadoop.io.SequenceFile.CompressionType
 import org.apache.hadoop.io.compress.GzipCodec
 
-import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkException
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{functions => F, _}
 import org.apache.spark.sql.catalyst.json.{CreateJacksonParser, JacksonParser, JSONOptions}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.execution.ExternalRDD
 import org.apache.spark.sql.execution.datasources.DataSource
 import org.apache.spark.sql.execution.datasources.json.JsonInferSchema.compatibleType
 import org.apache.spark.sql.internal.SQLConf
@@ -825,7 +826,7 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
       StructField("b", DecimalType(2, 2), true):: Nil)
 
     assert(expectedSchema === jsonDF.schema)
-    checkAnswer(jsonDF, Row(1.0E-39D, BigDecimal(0.01)))
+    checkAnswer(jsonDF, Row(1.0E-39D, BigDecimal("0.01")))
 
     val mergedJsonDF = spark.read
       .option("prefersDecimal", "true")
@@ -838,7 +839,7 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
     assert(expectedMergedSchema === mergedJsonDF.schema)
     checkAnswer(
       mergedJsonDF,
-      Row(1.0E-39D, BigDecimal(0.01)) ::
+      Row(1.0E-39D, BigDecimal("0.01")) ::
       Row(1.0E38D, BigDecimal("92233720368547758070")) :: Nil
     )
   }
@@ -936,14 +937,16 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
       Row(Map("e" -> null)) :: Nil
     )
 
-    checkAnswer(
-      sql("select `map`['c'] from jsonWithSimpleMap"),
-      Row(null) ::
-      Row(null) ::
-      Row(3) ::
-      Row(1) ::
-      Row(null) :: Nil
-    )
+    withSQLConf(SQLConf.SUPPORT_QUOTED_REGEX_COLUMN_NAME.key -> "false") {
+      checkAnswer(
+        sql("select `map`['c'] from jsonWithSimpleMap"),
+        Row(null) ::
+        Row(null) ::
+        Row(3) ::
+        Row(1) ::
+        Row(null) :: Nil
+      )
+    }
 
     val innerStruct = StructType(
       StructField("field1", ArrayType(IntegerType, true), true) ::
@@ -965,15 +968,17 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
       Row(Map("f" -> Row(null, null))) :: Nil
     )
 
-    checkAnswer(
-      sql("select `map`['a'].field1, `map`['c'].field2 from jsonWithComplexMap"),
-      Row(Seq(1, 2, 3, null), null) ::
-      Row(null, null) ::
-      Row(null, 4) ::
-      Row(null, 3) ::
-      Row(null, null) ::
-      Row(null, null) :: Nil
-    )
+    withSQLConf(SQLConf.SUPPORT_QUOTED_REGEX_COLUMN_NAME.key -> "false") {
+      checkAnswer(
+        sql("select `map`['a'].field1, `map`['c'].field2 from jsonWithComplexMap"),
+        Row(Seq(1, 2, 3, null), null) ::
+        Row(null, null) ::
+        Row(null, 4) ::
+        Row(null, 3) ::
+        Row(null, null) ::
+        Row(null, null) :: Nil
+      )
+    }
   }
 
   test("SPARK-2096 Correctly parse dot notations") {
@@ -1035,24 +1040,24 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
   }
 
   test("Corrupt records: FAILFAST mode") {
-    val schema = StructType(
-        StructField("a", StringType, true) :: Nil)
     // `FAILFAST` mode should throw an exception for corrupt records.
     val exceptionOne = intercept[SparkException] {
       spark.read
         .option("mode", "FAILFAST")
         .json(corruptRecords)
-    }
-    assert(exceptionOne.getMessage.contains("JsonParseException"))
+    }.getMessage
+    assert(exceptionOne.contains(
+      "Malformed records are detected in schema inference. Parse Mode: FAILFAST."))
 
     val exceptionTwo = intercept[SparkException] {
       spark.read
         .option("mode", "FAILFAST")
-        .schema(schema)
+        .schema("a string")
         .json(corruptRecords)
         .collect()
-    }
-    assert(exceptionTwo.getMessage.contains("JsonParseException"))
+    }.getMessage
+    assert(exceptionTwo.contains(
+      "Malformed records are detected in record parsing. Parse Mode: FAILFAST."))
   }
 
   test("Corrupt records: DROPMALFORMED mode") {
@@ -1325,6 +1330,15 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
         "from complexTable"),
       Row(5, null)
     )
+  }
+
+  test("Dataset toJSON doesn't construct rdd") {
+    val containsRDD = spark.emptyDataFrame.toJSON.queryExecution.logical.find {
+      case ExternalRDD(_, _) => true
+      case _ => false
+    }
+
+    assert(containsRDD.isEmpty, "Expected logical plan of toJSON to not contain an RDD")
   }
 
   test("JSONRelation equality test") {
@@ -1934,7 +1948,8 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
           .option("mode", "FAILFAST")
           .json(path)
       }
-      assert(exceptionOne.getMessage.contains("Failed to infer a common schema"))
+      assert(exceptionOne.getMessage.contains("Malformed records are detected in schema " +
+        "inference. Parse Mode: FAILFAST."))
 
       val exceptionTwo = intercept[SparkException] {
         spark.read
@@ -1944,7 +1959,8 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
           .json(path)
           .collect()
       }
-      assert(exceptionTwo.getMessage.contains("Failed to parse a value"))
+      assert(exceptionTwo.getMessage.contains("Malformed records are detected in record " +
+        "parsing. Parse Mode: FAILFAST."))
     }
   }
 
@@ -2016,6 +2032,35 @@ class JsonSuite extends QueryTest with SharedSQLContext with TestJsonData {
         }
         assert(e.getMessage.contains("Cannot parse"))
       }
+    }
+  }
+
+  test("SPARK-21610: Corrupt records are not handled properly when creating a dataframe " +
+    "from a file") {
+    withTempPath { dir =>
+      val path = dir.getCanonicalPath
+      val data =
+        """{"field": 1}
+          |{"field": 2}
+          |{"field": "3"}""".stripMargin
+      Seq(data).toDF().repartition(1).write.text(path)
+      val schema = new StructType().add("field", ByteType).add("_corrupt_record", StringType)
+      // negative cases
+      val msg = intercept[AnalysisException] {
+        spark.read.schema(schema).json(path).select("_corrupt_record").collect()
+      }.getMessage
+      assert(msg.contains("only include the internal corrupt record column"))
+      intercept[catalyst.errors.TreeNodeException[_]] {
+        spark.read.schema(schema).json(path).filter($"_corrupt_record".isNotNull).count()
+      }
+      // workaround
+      val df = spark.read.schema(schema).json(path).cache()
+      assert(df.filter($"_corrupt_record".isNotNull).count() == 1)
+      assert(df.filter($"_corrupt_record".isNull).count() == 2)
+      checkAnswer(
+        df.select("_corrupt_record"),
+        Row(null) :: Row(null) :: Row("{\"field\": \"3\"}") :: Nil
+      )
     }
   }
 }

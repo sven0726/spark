@@ -17,11 +17,12 @@
 
 package org.apache.spark.sql.execution.datasources.csv
 
+import java.net.URI
 import java.nio.charset.{Charset, StandardCharsets}
 
 import com.univocity.parsers.csv.CsvParser
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileStatus
+import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hadoop.io.{LongWritable, Text}
 import org.apache.hadoop.mapred.TextInputFormat
 import org.apache.hadoop.mapreduce.Job
@@ -183,7 +184,8 @@ object TextInputCSVDataSource extends CSVDataSource {
         DataSource.apply(
           sparkSession,
           paths = paths,
-          className = classOf[TextFileFormat].getName
+          className = classOf[TextFileFormat].getName,
+          options = options.parameters
         ).resolveRelation(checkFilesExist = false))
         .select("value").as[String](Encoders.STRING)
     } else {
@@ -205,7 +207,7 @@ object MultiLineCSVDataSource extends CSVDataSource {
       parser: UnivocityParser,
       schema: StructType): Iterator[InternalRow] = {
     UnivocityParser.parseStream(
-      CodecStreams.createInputStreamWithCloseResource(conf, file.filePath),
+      CodecStreams.createInputStreamWithCloseResource(conf, new Path(new URI(file.filePath))),
       parser.options.headerFlag,
       parser,
       schema)
@@ -217,8 +219,9 @@ object MultiLineCSVDataSource extends CSVDataSource {
       parsedOptions: CSVOptions): StructType = {
     val csv = createBaseRdd(sparkSession, inputPaths, parsedOptions)
     csv.flatMap { lines =>
+      val path = new Path(lines.getPath())
       UnivocityParser.tokenizeStream(
-        CodecStreams.createInputStreamWithCloseResource(lines.getConfiguration, lines.getPath()),
+        CodecStreams.createInputStreamWithCloseResource(lines.getConfiguration, path),
         shouldDropHeader = false,
         new CsvParser(parsedOptions.asParserSettings))
     }.take(1).headOption match {
@@ -229,7 +232,7 @@ object MultiLineCSVDataSource extends CSVDataSource {
           UnivocityParser.tokenizeStream(
             CodecStreams.createInputStreamWithCloseResource(
               lines.getConfiguration,
-              lines.getPath()),
+              new Path(lines.getPath())),
             parsedOptions.headerFlag,
             new CsvParser(parsedOptions.asParserSettings))
         }
@@ -246,7 +249,8 @@ object MultiLineCSVDataSource extends CSVDataSource {
       options: CSVOptions): RDD[PortableDataStream] = {
     val paths = inputPaths.map(_.getPath)
     val name = paths.mkString(",")
-    val job = Job.getInstance(sparkSession.sessionState.newHadoopConf())
+    val job = Job.getInstance(sparkSession.sessionState.newHadoopConfWithOptions(
+      options.parameters))
     FileInputFormat.setInputPaths(job, paths: _*)
     val conf = job.getConfiguration
 

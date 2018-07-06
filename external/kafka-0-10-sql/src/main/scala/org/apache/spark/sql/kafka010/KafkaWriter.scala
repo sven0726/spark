@@ -43,10 +43,9 @@ private[kafka010] object KafkaWriter extends Logging {
   override def toString: String = "KafkaWriter"
 
   def validateQuery(
-      queryExecution: QueryExecution,
+      schema: Seq[Attribute],
       kafkaParameters: ju.Map[String, Object],
       topic: Option[String] = None): Unit = {
-    val schema = queryExecution.analyzed.output
     schema.find(_.name == TOPIC_ATTRIBUTE_NAME).getOrElse(
       if (topic.isEmpty) {
         throw new AnalysisException(s"topic option required when no " +
@@ -84,13 +83,11 @@ private[kafka010] object KafkaWriter extends Logging {
       kafkaParameters: ju.Map[String, Object],
       topic: Option[String] = None): Unit = {
     val schema = queryExecution.analyzed.output
-    validateQuery(queryExecution, kafkaParameters, topic)
-    SQLExecution.withNewExecutionId(sparkSession, queryExecution) {
-      queryExecution.toRdd.foreachPartition { iter =>
-        val writeTask = new KafkaWriteTask(kafkaParameters, schema, topic)
-        Utils.tryWithSafeFinally(block = writeTask.execute(iter))(
-          finallyBlock = writeTask.close())
-      }
+    validateQuery(schema, kafkaParameters, topic)
+    queryExecution.toRdd.foreachPartition { iter =>
+      val writeTask = new KafkaWriteTask(kafkaParameters, schema, topic)
+      Utils.tryWithSafeFinally(block = writeTask.execute(iter))(
+        finallyBlock = writeTask.close())
     }
   }
 }

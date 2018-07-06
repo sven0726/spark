@@ -20,9 +20,11 @@ package org.apache.spark.sql.catalyst.optimizer
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext
 import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Range}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
+import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 
 /**
@@ -30,14 +32,14 @@ import org.apache.spark.sql.types._
 * i.e. {{{create_named_struct(square, `x` * `x`).square}}} can be simplified to {{{`x` * `x`}}}.
 * sam applies to create_array and create_map
 */
-class ComplexTypesSuite extends PlanTest{
+class ComplexTypesSuite extends PlanTest with ExpressionEvalHelper {
 
   object Optimizer extends RuleExecutor[LogicalPlan] {
     val batches =
       Batch("collapse projections", FixedPoint(10),
           CollapseProject) ::
       Batch("Constant Folding", FixedPoint(10),
-          NullPropagation(conf),
+          NullPropagation,
           ConstantFolding,
           BooleanSimplification,
           SimplifyConditionals,
@@ -162,6 +164,17 @@ class ComplexTypesSuite extends PlanTest{
         ('id + 1L) as "a4")
       .analyze
     comparePlans(Optimizer execute query, expected)
+  }
+
+  test("SPARK-22570: CreateArray should not create a lot of global variables") {
+    val ctx = new CodegenContext
+    CreateArray(Seq(Literal(1))).genCode(ctx)
+    assert(ctx.inlinedMutableStates.length == 0)
+  }
+
+  test("SPARK-23208: Test code splitting for create array related methods") {
+    val inputs = (1 to 2500).map(x => Literal(s"l_$x"))
+    checkEvaluation(CreateArray(inputs), new GenericArrayData(inputs.map(_.eval())))
   }
 
   test("simplify map ops") {
@@ -317,5 +330,18 @@ class ComplexTypesSuite extends PlanTest{
           (Literal.TrueLiteral, 'id))) as "a")
       .analyze
     comparePlans(Optimizer execute rel, expected)
+  }
+
+  test("SPARK-24313: support binary type as map keys in GetMapValue") {
+    val mb0 = Literal.create(
+      Map(Array[Byte](1, 2) -> "1", Array[Byte](3, 4) -> null, Array[Byte](2, 1) -> "2"),
+      MapType(BinaryType, StringType))
+    val mb1 = Literal.create(Map[Array[Byte], String](), MapType(BinaryType, StringType))
+
+    checkEvaluation(GetMapValue(mb0, Literal(Array[Byte](1, 2, 3))), null)
+
+    checkEvaluation(GetMapValue(mb1, Literal(Array[Byte](1, 2))), null)
+    checkEvaluation(GetMapValue(mb0, Literal(Array[Byte](2, 1), BinaryType)), "2")
+    checkEvaluation(GetMapValue(mb0, Literal(Array[Byte](3, 4))), null)
   }
 }

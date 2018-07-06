@@ -22,7 +22,7 @@ import javax.servlet.http.HttpServletRequest
 import scala.xml.Node
 
 import org.apache.spark.deploy.DeployMessages.{MasterStateResponse, RequestMasterState}
-import org.apache.spark.deploy.{ExecutorState, XSparkUI}
+import org.apache.spark.deploy.ExecutorState
 import org.apache.spark.deploy.master.ExecutorDesc
 import org.apache.spark.ui.{ToolTips, UIUtils, WebUIPage}
 import org.apache.spark.util.Utils
@@ -35,7 +35,6 @@ private[ui] class ApplicationPage(parent: MasterWebUI) extends WebUIPage("app") 
   def render(request: HttpServletRequest): Seq[Node] = {
     // stripXSS is called first to remove suspicious characters used in XSS attacks
     val appId = UIUtils.stripXSS(request.getParameter("appId"))
-    val driverDomain = XSparkUI.retrieveXSparkAP(XSparkUI.DRIVER_DOMAIN)
     val state = master.askSync[MasterStateResponse](RequestMasterState)
     val app = state.activeApps.find(_.id == appId)
       .getOrElse(state.completedApps.find(_.id == appId).orNull)
@@ -90,7 +89,8 @@ private[ui] class ApplicationPage(parent: MasterWebUI) extends WebUIPage("app") 
             {
               if (!app.isFinished) {
                 <li><strong>
-                    <a href={driverDomain}>Application Detail UI</a>
+                    <a href={UIUtils.makeHref(parent.master.reverseProxy,
+                      app.id, app.desc.appUiUrl)}>Application Detail UI</a>
                 </strong></li>
               }
             }
@@ -100,11 +100,11 @@ private[ui] class ApplicationPage(parent: MasterWebUI) extends WebUIPage("app") 
 
       <div class="row-fluid"> <!-- Executors -->
         <div class="span12">
-          <h4> Executor Summary </h4>
+          <h4> Executor Summary ({allExecutors.length}) </h4>
           {executorsTable}
           {
             if (removedExecutors.nonEmpty) {
-              <h4> Removed Executors </h4> ++
+              <h4> Removed Executors ({removedExecutors.length}) </h4> ++
               removedExecutorsTable
             }
           }
@@ -114,23 +114,21 @@ private[ui] class ApplicationPage(parent: MasterWebUI) extends WebUIPage("app") 
   }
 
   private def executorRow(executor: ExecutorDesc): Seq[Node] = {
-    val workerDomain = XSparkUI.retrieveXSparkAP(XSparkUI.WORKER_DOMAIN)
-    val workerUrl = "%s%s.%s".format("http://", executor.worker.host, workerDomain)
     val workerUrlRef = UIUtils.makeHref(parent.master.reverseProxy,
       executor.worker.id, executor.worker.webUiAddress)
     <tr>
       <td>{executor.id}</td>
       <td>
-        <a href={workerUrl}>{executor.worker.id}</a>
+        <a href={workerUrlRef}>{executor.worker.id}</a>
       </td>
       <td>{executor.cores}</td>
       <td>{executor.memory}</td>
       <td>{executor.state}</td>
       <td>
-        <a href={"%s/logPage?appId=%s&executorId=%s&logType=stdout"
-          .format(workerUrl, executor.application.id, executor.id)}>stdout</a>
-        <a href={"%s/logPage?appId=%s&executorId=%s&logType=stderr"
-          .format(workerUrl, executor.application.id, executor.id)}>stderr</a>
+        <a href={s"$workerUrlRef/logPage?appId=${executor.application.id}&executorId=${executor.
+          id}&logType=stdout"}>stdout</a>
+        <a href={s"$workerUrlRef/logPage?appId=${executor.application.id}&executorId=${executor.
+          id}&logType=stderr"}>stderr</a>
       </td>
     </tr>
   }

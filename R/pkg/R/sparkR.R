@@ -113,7 +113,7 @@ sparkR.stop <- function() {
 #'                  list(spark.executor.memory="4g"),
 #'                  list(LD_LIBRARY_PATH="/directory of JVM libraries (libjvm.so) on workers/"),
 #'                  c("one.jar", "two.jar", "three.jar"),
-#'                  c("com.databricks:spark-avro_2.10:2.0.1"))
+#'                  c("com.databricks:spark-avro_2.11:2.0.1"))
 #'}
 #' @note sparkR.init since 1.4.0
 sparkR.init <- function(
@@ -161,11 +161,16 @@ sparkR.sparkContext <- function(
                     " please use the --packages commandline instead", sep = ","))
     }
     backendPort <- existingPort
+    authSecret <- Sys.getenv("SPARKR_BACKEND_AUTH_SECRET")
+    if (nchar(authSecret) == 0) {
+      stop("Auth secret not provided in environment.")
+    }
   } else {
     path <- tempfile(pattern = "backend_port")
     submitOps <- getClientModeSparkSubmitOpts(
         Sys.getenv("SPARKR_SUBMIT_ARGS", "sparkr-shell"),
         sparkEnvirMap)
+    checkJavaVersion()
     launchBackend(
         args = path,
         sparkHome = sparkHome,
@@ -189,16 +194,27 @@ sparkR.sparkContext <- function(
     monitorPort <- readInt(f)
     rLibPath <- readString(f)
     connectionTimeout <- readInt(f)
+
+    # Don't use readString() so that we can provide a useful
+    # error message if the R and Java versions are mismatched.
+    authSecretLen <- readInt(f)
+    if (length(authSecretLen) == 0 || authSecretLen == 0) {
+      stop("Unexpected EOF in JVM connection data. Mismatched versions?")
+    }
+    authSecret <- readStringData(f, authSecretLen)
     close(f)
     file.remove(path)
     if (length(backendPort) == 0 || backendPort == 0 ||
         length(monitorPort) == 0 || monitorPort == 0 ||
-        length(rLibPath) != 1) {
+        length(rLibPath) != 1 || length(authSecret) == 0) {
       stop("JVM failed to launch")
     }
-    assign(".monitorConn",
-           socketConnection(port = monitorPort, timeout = connectionTimeout),
-           envir = .sparkREnv)
+
+    monitorConn <- socketConnection(port = monitorPort, blocking = TRUE,
+                                    timeout = connectionTimeout, open = "wb")
+    doServerAuth(monitorConn, authSecret)
+
+    assign(".monitorConn", monitorConn, envir = .sparkREnv)
     assign(".backendLaunched", 1, envir = .sparkREnv)
     if (rLibPath != "") {
       assign(".libPath", rLibPath, envir = .sparkREnv)
@@ -208,7 +224,7 @@ sparkR.sparkContext <- function(
 
   .sparkREnv$backendPort <- backendPort
   tryCatch({
-    connectBackend("localhost", backendPort, timeout = connectionTimeout)
+    connectBackend("localhost", backendPort, timeout = connectionTimeout, authSecret = authSecret)
   },
   error = function(err) {
     stop("Failed to connect JVM\n")
@@ -357,7 +373,7 @@ sparkRHive.init <- function(jsc = NULL) {
 #' sparkR.session("yarn-client", "SparkR", "/home/spark",
 #'                list(spark.executor.memory="4g"),
 #'                c("one.jar", "two.jar", "three.jar"),
-#'                c("com.databricks:spark-avro_2.10:2.0.1"))
+#'                c("com.databricks:spark-avro_2.11:2.0.1"))
 #' sparkR.session(spark.master = "yarn-client", spark.executor.memory = "4g")
 #'}
 #' @note sparkR.session since 2.0.0
@@ -420,6 +436,18 @@ sparkR.session <- function(
                                 enableHiveSupport)
     assign(".sparkRsession", sparkSession, envir = .sparkREnv)
   }
+
+  # Check if version number of SparkSession matches version number of SparkR package
+  jvmVersion <- callJMethod(sparkSession, "version")
+  # Remove -SNAPSHOT from jvm versions
+  jvmVersionStrip <- gsub("-SNAPSHOT", "", jvmVersion)
+  rPackageVersion <- paste0(packageVersion("SparkR"))
+
+  if (jvmVersionStrip != rPackageVersion) {
+    warning(paste("Version mismatch between Spark JVM and SparkR package. JVM version was",
+                  jvmVersion, ", while R package version was", rPackageVersion))
+  }
+
   sparkSession
 }
 
@@ -535,6 +563,68 @@ cancelJobGroup <- function(sc, groupId) {
   }
 }
 
+#' Set a human readable description of the current job.
+#'
+#' Set a description that is shown as a job description in UI.
+#'
+#' @param value The job description of the current job.
+#' @rdname setJobDescription
+#' @name setJobDescription
+#' @examples
+#'\dontrun{
+#' setJobDescription("This is an example job.")
+#'}
+#' @note setJobDescription since 2.3.0
+setJobDescription <- function(value) {
+  if (!is.null(value)) {
+    value <- as.character(value)
+  }
+  sc <- getSparkContext()
+  invisible(callJMethod(sc, "setJobDescription", value))
+}
+
+#' Set a local property that affects jobs submitted from this thread, such as the
+#' Spark fair scheduler pool.
+#'
+#' @param key The key for a local property.
+#' @param value The value for a local property.
+#' @rdname setLocalProperty
+#' @name setLocalProperty
+#' @examples
+#'\dontrun{
+#' setLocalProperty("spark.scheduler.pool", "poolA")
+#'}
+#' @note setLocalProperty since 2.3.0
+setLocalProperty <- function(key, value) {
+  if (is.null(key) || is.na(key)) {
+    stop("key should not be NULL or NA.")
+  }
+  if (!is.null(value)) {
+    value <- as.character(value)
+  }
+  sc <- getSparkContext()
+  invisible(callJMethod(sc, "setLocalProperty", as.character(key), value))
+}
+
+#' Get a local property set in this thread, or \code{NULL} if it is missing. See
+#' \code{setLocalProperty}.
+#'
+#' @param key The key for a local property.
+#' @rdname getLocalProperty
+#' @name getLocalProperty
+#' @examples
+#'\dontrun{
+#' getLocalProperty("spark.scheduler.pool")
+#'}
+#' @note getLocalProperty since 2.3.0
+getLocalProperty <- function(key) {
+  if (is.null(key) || is.na(key)) {
+    stop("key should not be NULL or NA.")
+  }
+  sc <- getSparkContext()
+  callJMethod(sc, "getLocalProperty", as.character(key))
+}
+
 sparkConfToSubmitOps <- new.env()
 sparkConfToSubmitOps[["spark.driver.memory"]]           <- "--driver-memory"
 sparkConfToSubmitOps[["spark.driver.extraClassPath"]]   <- "--driver-class-path"
@@ -618,5 +708,19 @@ sparkCheckInstall <- function(sparkHome, master, deployMode) {
     }
   } else {
     NULL
+  }
+}
+
+# Utility function for sending auth data over a socket and checking the server's reply.
+doServerAuth <- function(con, authSecret) {
+  if (nchar(authSecret) == 0) {
+    stop("Auth secret not provided.")
+  }
+  writeString(con, authSecret)
+  flush(con)
+  reply <- readString(con)
+  if (reply != "ok") {
+    close(con)
+    stop("Unexpected reply from server.")
   }
 }

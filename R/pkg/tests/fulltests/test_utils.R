@@ -134,7 +134,7 @@ test_that("cleanClosure on R functions", {
 
   # Test for broadcast variables.
   a <- matrix(nrow = 10, ncol = 10, data = rnorm(100))
-  aBroadcast <- broadcast(sc, a)
+  aBroadcast <- broadcastRDD(sc, a)
   normMultiply <- function(x) { norm(aBroadcast$value) * x }
   newnormMultiply <- SparkR:::cleanClosure(normMultiply)
   env <- environment(newnormMultiply)
@@ -158,22 +158,14 @@ test_that("varargsToJProperties", {
   expect_equal(callJMethod(jprops, "size"), 0L)
 })
 
-test_that("convertToJSaveMode", {
-  s <- convertToJSaveMode("error")
-  expect_true(class(s) == "jobj")
-  expect_match(capture.output(print.jobj(s)), "Java ref type org.apache.spark.sql.SaveMode id ")
-  expect_error(convertToJSaveMode("foo"),
-    'mode should be one of "append", "overwrite", "error", "ignore"') #nolint
-})
-
 test_that("captureJVMException", {
-  method <- "getSQLDataType"
+  method <- "createStructField"
   expect_error(tryCatch(callJStatic("org.apache.spark.sql.api.r.SQLUtils", method,
-                                    "unknown"),
+                                    "col", "unknown", TRUE),
                         error = function(e) {
                           captureJVMException(e, method)
                         }),
-               "Error in getSQLDataType : illegal argument - Invalid type unknown")
+               "parse error - .*DataType unknown.*not supported.")
 })
 
 test_that("hashCode", {
@@ -234,6 +226,31 @@ test_that("basenameSansExtFromUrl", {
   expect_equal(basenameSansExtFromUrl(x), "spark-2.1.1-SNAPSHOT-bin-hadoop2.7")
   z <- "http://people.apache.org/~pwendell/spark-releases/spark-2.1.0--hive.tar.gz"
   expect_equal(basenameSansExtFromUrl(z), "spark-2.1.0--hive")
+})
+
+test_that("getOne", {
+  dummy <- getOne(".dummyValue", envir = new.env(), ifnotfound = FALSE)
+  expect_equal(dummy, FALSE)
+})
+
+test_that("traverseParentDirs", {
+  if (is_windows()) {
+    # original path is included as-is, otherwise dirname() replaces \\ with / on windows
+    dirs <- traverseParentDirs("c:\\Users\\user\\AppData\\Local\\Apache\\Spark\\Cache\\spark2.2", 3)
+    expect <- c("c:\\Users\\user\\AppData\\Local\\Apache\\Spark\\Cache\\spark2.2",
+                "c:/Users/user/AppData/Local/Apache/Spark/Cache",
+                "c:/Users/user/AppData/Local/Apache/Spark",
+                "c:/Users/user/AppData/Local/Apache")
+    expect_equal(dirs, expect)
+  } else {
+    dirs <- traverseParentDirs("/Users/user/Library/Caches/spark/spark2.2", 1)
+    expect <- c("/Users/user/Library/Caches/spark/spark2.2", "/Users/user/Library/Caches/spark")
+    expect_equal(dirs, expect)
+
+    dirs <- traverseParentDirs("/home/u/.cache/spark/spark2.2", 1)
+    expect <- c("/home/u/.cache/spark/spark2.2", "/home/u/.cache/spark")
+    expect_equal(dirs, expect)
+  }
 })
 
 sparkR.session.stop()

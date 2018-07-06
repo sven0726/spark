@@ -264,6 +264,36 @@ head(arrange(waiting_counts, desc(waiting_counts$count)))
 {% endhighlight %}
 </div>
 
+In addition to standard aggregations, SparkR supports [OLAP cube](https://en.wikipedia.org/wiki/OLAP_cube) operators `cube`:
+
+<div data-lang="r"  markdown="1">
+{% highlight r %}
+head(agg(cube(df, "cyl", "disp", "gear"), avg(df$mpg)))
+##  cyl  disp gear avg(mpg)
+##1  NA 140.8    4     22.8
+##2   4  75.7    4     30.4
+##3   8 400.0    3     19.2
+##4   8 318.0    3     15.5
+##5  NA 351.0   NA     15.8
+##6  NA 275.8   NA     16.3
+{% endhighlight %}
+</div>
+
+and `rollup`:
+
+<div data-lang="r"  markdown="1">
+{% highlight r %}
+head(agg(rollup(df, "cyl", "disp", "gear"), avg(df$mpg)))
+##  cyl  disp gear avg(mpg)
+##1   4  75.7    4     30.4
+##2   8 400.0    3     19.2
+##3   8 318.0    3     15.5
+##4   4  78.7   NA     32.4
+##5   8 304.0    3     15.2
+##6   4  79.0   NA     27.3
+{% endhighlight %}
+</div>
+
 ### Operating on Columns
 
 SparkR also provides a number of functions that can directly applied to columns for data processing and during aggregation. The example below shows the use of basic arithmetic functions.
@@ -462,6 +492,7 @@ SparkR supports the following machine learning algorithms currently:
 
 #### Tree
 
+* [`spark.decisionTree`](api/R/spark.decisionTree.html): `Decision Tree for` [`Regression`](ml-classification-regression.html#decision-tree-regression) `and` [`Classification`](ml-classification-regression.html#decision-tree-classifier)
 * [`spark.gbt`](api/R/spark.gbt.html): `Gradient Boosted Trees for` [`Regression`](ml-classification-regression.html#gradient-boosted-tree-regression) `and` [`Classification`](ml-classification-regression.html#gradient-boosted-tree-classifier)
 * [`spark.randomForest`](api/R/spark.randomForest.html): `Random Forest for` [`Regression`](ml-classification-regression.html#random-forest-regression) `and` [`Classification`](ml-classification-regression.html#random-forest-classifier)
 
@@ -565,7 +596,7 @@ The following example shows how to save/load a MLlib model by SparkR.
 
 # Structured Streaming
 
-SparkR supports the Structured Streaming API (experimental). Structured Streaming is a scalable and fault-tolerant stream processing engine built on the Spark SQL engine. For more information see the R API on the [Structured Streaming Programming Guide](structured-streaming-programming-guide.html)
+SparkR supports the Structured Streaming API. Structured Streaming is a scalable and fault-tolerant stream processing engine built on the Spark SQL engine. For more information see the R API on the [Structured Streaming Programming Guide](structured-streaming-programming-guide.html)
 
 # R Function Name Conflicts
 
@@ -626,3 +657,13 @@ You can inspect the search path in R with [`search()`](https://stat.ethz.ch/R-ma
  - By default, derby.log is now saved to `tempdir()`. This will be created when instantiating the SparkSession with `enableHiveSupport` set to `TRUE`.
  - `spark.lda` was not setting the optimizer correctly. It has been corrected.
  - Several model summary outputs are updated to have `coefficients` as `matrix`. This includes `spark.logit`, `spark.kmeans`, `spark.glm`. Model summary outputs for `spark.gaussianMixture` have added log-likelihood as `loglik`.
+
+## Upgrading to SparkR 2.3.0
+
+ - The `stringsAsFactors` parameter was previously ignored with `collect`, for example, in `collect(createDataFrame(iris), stringsAsFactors = TRUE))`. It has been corrected.
+ - For `summary`, option for statistics to compute has been added. Its output is changed from that from `describe`.
+ - A warning can be raised if versions of SparkR package and the Spark JVM do not match.
+
+## Upgrading to SparkR 2.3.1 and above
+
+ - In SparkR 2.3.0 and earlier, the `start` parameter of `substr` method was wrongly subtracted by one and considered as 0-based. This can lead to inconsistent substring results and also does not match with the behaviour with `substr` in R. In version 2.3.1 and later, it has been fixed so the `start` parameter of `substr` method is now 1-base. As an example, `substr(lit('abcdef'), 2, 4))` would result to `abc` in SparkR 2.3.0, and the result would be `bcd` in SparkR 2.3.1.

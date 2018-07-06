@@ -24,7 +24,7 @@ import scala.xml.Node
 import org.json4s.JValue
 
 import org.apache.spark.deploy.DeployMessages.{KillDriverResponse, MasterStateResponse, RequestKillDriver, RequestMasterState}
-import org.apache.spark.deploy.{JsonProtocol, XSparkUI}
+import org.apache.spark.deploy.JsonProtocol
 import org.apache.spark.deploy.master._
 import org.apache.spark.ui.{UIUtils, WebUIPage}
 import org.apache.spark.util.Utils
@@ -128,14 +128,14 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
 
         <div class="row-fluid">
           <div class="span12">
-            <h4> Workers </h4>
+            <h4> Workers ({workers.length}) </h4>
             {workerTable}
           </div>
         </div>
 
         <div class="row-fluid">
           <div class="span12">
-            <h4 id="running-app"> Running Applications </h4>
+            <h4 id="running-app"> Running Applications ({activeApps.length}) </h4>
             {activeAppsTable}
           </div>
         </div>
@@ -144,7 +144,7 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
           {if (hasDrivers) {
              <div class="row-fluid">
                <div class="span12">
-                 <h4> Running Drivers </h4>
+                 <h4> Running Drivers ({activeDrivers.length}) </h4>
                  {activeDriversTable}
                </div>
              </div>
@@ -154,7 +154,7 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
 
         <div class="row-fluid">
           <div class="span12">
-            <h4 id="completed-app"> Completed Applications </h4>
+            <h4 id="completed-app"> Completed Applications ({completedApps.length}) </h4>
             {completedAppsTable}
           </div>
         </div>
@@ -164,7 +164,7 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
             if (hasDrivers) {
               <div class="row-fluid">
                 <div class="span12">
-                  <h4> Completed Drivers </h4>
+                  <h4> Completed Drivers ({completedDrivers.length}) </h4>
                   {completedDriversTable}
                 </div>
               </div>
@@ -176,13 +176,11 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
   }
 
   private def workerRow(worker: WorkerInfo): Seq[Node] = {
-    val workerDomain = XSparkUI.retrieveXSparkAP(XSparkUI.WORKER_DOMAIN)
-    val workerNewDomain = "http://%s.%s".format(worker.host, workerDomain)
     <tr>
       <td>
         {
           if (worker.isAlive()) {
-            <a href={workerNewDomain}>
+            <a href={UIUtils.makeHref(parent.master.reverseProxy, worker.id, worker.webUiAddress)}>
               {worker.id}
             </a>
           } else {
@@ -222,7 +220,8 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") {
           if (app.isFinished) {
             app.desc.name
           } else {
-            <a href={"app?appId=" + app.id}>{app.desc.name}</a>
+            <a href={UIUtils.makeHref(parent.master.reverseProxy,
+              app.id, app.desc.appUiUrl)}>{app.desc.name}</a>
           }
         }
       </td>

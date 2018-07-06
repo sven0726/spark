@@ -1,7 +1,3 @@
-# Qiniu Spark
-
-七牛定制版Spark
-
 # Apache Spark
 
 Spark is a fast and general cluster computing system for Big Data. It provides
@@ -105,4 +101,3 @@ in the online documentation for an overview on how to configure Spark.
 
 Please review the [Contribution to Spark guide](http://spark.apache.org/contributing.html)
 for information on how to get started contributing to the project.
->>>>>>> df061fd5f93c8110107198a94e68a4e29248e345

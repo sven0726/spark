@@ -33,7 +33,11 @@ import org.apache.spark.sql.catalyst.analysis.{NoSuchTableException, Resolver}
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
-import org.apache.spark.sql.execution.datasources.PartitioningUtils
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation, PartitioningUtils}
+import org.apache.spark.sql.execution.datasources.orc.OrcFileFormat
+import org.apache.spark.sql.execution.datasources.parquet.ParquetSchemaConverter
+import org.apache.spark.sql.internal.HiveSerDe
 import org.apache.spark.sql.types._
 import org.apache.spark.util.{SerializableConfiguration, ThreadUtils}
 
@@ -199,14 +203,20 @@ case class DropTableCommand(
         case _ =>
       }
     }
-    try {
-      sparkSession.sharedState.cacheManager.uncacheQuery(sparkSession.table(tableName))
-    } catch {
-      case _: NoSuchTableException if ifExists =>
-      case NonFatal(e) => log.warn(e.toString, e)
+
+    if (catalog.isTemporaryTable(tableName) || catalog.tableExists(tableName)) {
+      try {
+        sparkSession.sharedState.cacheManager.uncacheQuery(sparkSession.table(tableName))
+      } catch {
+        case NonFatal(e) => log.warn(e.toString, e)
+      }
+      catalog.refreshTable(tableName)
+      catalog.dropTable(tableName, ifExists, purge)
+    } else if (ifExists) {
+      // no-op
+    } else {
+      throw new AnalysisException(s"Table or view not found: ${tableName.identifier}")
     }
-    catalog.refreshTable(tableName)
-    catalog.dropTable(tableName, ifExists, purge)
     Seq.empty[Row]
   }
 }
@@ -230,8 +240,12 @@ case class AlterTableSetPropertiesCommand(
     val catalog = sparkSession.sessionState.catalog
     val table = catalog.getTableMetadata(tableName)
     DDLUtils.verifyAlterTableType(catalog, table, isView)
-    // This overrides old properties
-    val newTable = table.copy(properties = table.properties ++ properties)
+    // This overrides old properties and update the comment parameter of CatalogTable
+    // with the newly added/modified comment since CatalogTable also holds comment as its
+    // direct property.
+    val newTable = table.copy(
+      properties = table.properties ++ properties,
+      comment = properties.get("comment").orElse(table.comment))
     catalog.alterTable(newTable)
     Seq.empty[Row]
   }
@@ -260,14 +274,16 @@ case class AlterTableUnsetPropertiesCommand(
     DDLUtils.verifyAlterTableType(catalog, table, isView)
     if (!ifExists) {
       propKeys.foreach { k =>
-        if (!table.properties.contains(k)) {
+        if (!table.properties.contains(k) && k != "comment") {
           throw new AnalysisException(
             s"Attempted to unset non-existent property '$k' in table '${table.identifier}'")
         }
       }
     }
+    // If comment is in the table property, we reset it to None
+    val tableComment = if (propKeys.contains("comment")) None else table.comment
     val newProperties = table.properties.filter { case (k, _) => !propKeys.contains(k) }
-    val newTable = table.copy(properties = newProperties)
+    val newTable = table.copy(properties = newProperties, comment = tableComment)
     catalog.alterTable(newTable)
     Seq.empty[Row]
   }
@@ -298,8 +314,8 @@ case class AlterTableChangeColumnCommand(
     val resolver = sparkSession.sessionState.conf.resolver
     DDLUtils.verifyAlterTableType(catalog, table, isView = false)
 
-    // Find the origin column from schema by column name.
-    val originColumn = findColumnByName(table.schema, columnName, resolver)
+    // Find the origin column from dataSchema by column name.
+    val originColumn = findColumnByName(table.dataSchema, columnName, resolver)
     // Throw an AnalysisException if the column name/dataType is changed.
     if (!columnEqual(originColumn, newColumn, resolver)) {
       throw new AnalysisException(
@@ -308,7 +324,7 @@ case class AlterTableChangeColumnCommand(
           s"'${newColumn.name}' with type '${newColumn.dataType}'")
     }
 
-    val newSchema = table.schema.fields.map { field =>
+    val newDataSchema = table.dataSchema.fields.map { field =>
       if (field.name == originColumn.name) {
         // Create a new column from the origin column with the new comment.
         addComment(field, newColumn.getComment)
@@ -316,8 +332,7 @@ case class AlterTableChangeColumnCommand(
         field
       }
     }
-    val newTable = table.copy(schema = StructType(newSchema))
-    catalog.alterTable(newTable)
+    catalog.alterTableDataSchema(tableName, StructType(newDataSchema))
 
     Seq.empty[Row]
   }
@@ -329,7 +344,8 @@ case class AlterTableChangeColumnCommand(
     schema.fields.collectFirst {
       case field if resolver(field.name, name) => field
     }.getOrElse(throw new AnalysisException(
-      s"Invalid column reference '$name', table schema is '${schema}'"))
+      s"Can't find column `$name` given table data columns " +
+        s"${schema.fieldNames.mkString("[`", "`, `", "`]")}"))
   }
 
   // Add the comment to a column, if comment is empty, return the original column.
@@ -427,9 +443,24 @@ case class AlterTableAddPartitionCommand(
         sparkSession.sessionState.conf.resolver)
       // inherit table storage format (possibly except for location)
       CatalogTablePartition(normalizedSpec, table.storage.copy(
-        locationUri = location.map(CatalogUtils.stringToURI(_))))
+        locationUri = location.map(CatalogUtils.stringToURI)))
     }
     catalog.createPartitions(table.identifier, parts, ignoreIfExists = ifNotExists)
+
+    if (table.stats.nonEmpty) {
+      if (sparkSession.sessionState.conf.autoSizeUpdateEnabled) {
+        val addedSize = parts.map { part =>
+          CommandUtils.calculateLocationSize(sparkSession.sessionState, table.identifier,
+            part.storage.locationUri)
+        }.sum
+        if (addedSize > 0) {
+          val newStats = CatalogStatistics(sizeInBytes = table.stats.get.sizeInBytes + addedSize)
+          catalog.alterTableStats(table.identifier, Some(newStats))
+        }
+      } else {
+        catalog.alterTableStats(table.identifier, None)
+      }
+    }
     Seq.empty[Row]
   }
 
@@ -513,6 +544,9 @@ case class AlterTableDropPartitionCommand(
     catalog.dropPartitions(
       table.identifier, normalizedSpecs, ignoreIfNotExists = ifExists, purge = purge,
       retainData = retainData)
+
+    CommandUtils.updateTableStats(sparkSession, table)
+
     Seq.empty[Row]
   }
 
@@ -647,11 +681,11 @@ case class AlterTableRecoverPartitionsCommand(
         } else {
           logWarning(
             s"expected partition column ${partitionNames.head}, but got ${ps(0)}, ignoring it")
-          Seq()
+          Seq.empty
         }
       } else {
         logWarning(s"ignore ${new Path(path, name)}")
-        Seq()
+        Seq.empty
       }
     }
   }
@@ -762,6 +796,8 @@ case class AlterTableSetLocationCommand(
         // No partition spec is specified, so we set the location for the table itself
         catalog.alterTable(table.withNewStorage(locationUri = Some(locUri)))
     }
+
+    CommandUtils.updateTableStats(sparkSession, table)
     Seq.empty[Row]
   }
 }
@@ -771,7 +807,11 @@ object DDLUtils {
   val HIVE_PROVIDER = "hive"
 
   def isHiveTable(table: CatalogTable): Boolean = {
-    table.provider.isDefined && table.provider.get.toLowerCase(Locale.ROOT) == HIVE_PROVIDER
+    isHiveTable(table.provider)
+  }
+
+  def isHiveTable(provider: Option[String]): Boolean = {
+    provider.isDefined && provider.get.toLowerCase(Locale.ROOT) == HIVE_PROVIDER
   }
 
   def isDatasourceTable(table: CatalogTable): Boolean = {
@@ -820,6 +860,42 @@ object DDLUtils {
             s"Cannot alter a table with ALTER VIEW. Please use ALTER TABLE instead")
         case _ =>
       }
+    }
+  }
+
+  private[sql] def checkDataColNames(table: CatalogTable): Unit = {
+    checkDataColNames(table, table.dataSchema.fieldNames)
+  }
+
+  private[sql] def checkDataColNames(table: CatalogTable, colNames: Seq[String]): Unit = {
+    table.provider.foreach {
+      _.toLowerCase(Locale.ROOT) match {
+        case HIVE_PROVIDER =>
+          val serde = table.storage.serde
+          if (serde == HiveSerDe.sourceToSerDe("orc").get.serde) {
+            OrcFileFormat.checkFieldNames(colNames)
+          } else if (serde == HiveSerDe.sourceToSerDe("parquet").get.serde ||
+              serde == Some("parquet.hive.serde.ParquetHiveSerDe")) {
+            ParquetSchemaConverter.checkFieldNames(colNames)
+          }
+        case "parquet" => ParquetSchemaConverter.checkFieldNames(colNames)
+        case "orc" => OrcFileFormat.checkFieldNames(colNames)
+        case _ =>
+      }
+    }
+  }
+
+  /**
+   * Throws exception if outputPath tries to overwrite inputpath.
+   */
+  def verifyNotReadPath(query: LogicalPlan, outputPath: Path) : Unit = {
+    val inputPaths = query.collect {
+      case LogicalRelation(r: HadoopFsRelation, _, _, _) => r.location.rootPaths
+    }.flatten
+
+    if (inputPaths.contains(outputPath)) {
+      throw new AnalysisException(
+        "Cannot overwrite a path that is also being read from.")
     }
   }
 }
